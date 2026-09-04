@@ -111,12 +111,33 @@ pub const interrupt = struct {
     /// The priority of an interrupt.
     /// Cortex-M uses a reversed priority scheme so the lowest priority is 15 and the highest is 0.
     ///
-    /// Note: Some platforms may only use the most significant bits of the priority register.
+    /// Note: The 8-bit priority register only implements its most-significant
+    /// bits (4 on Cortex-M3/M4/M7, 2 on M0/M0+). These logical 0-15 levels are
+    /// left-aligned into those bits by `encode_priority` before being written.
     pub const Priority = enum(u8) {
         lowest = 15,
         highest = 0,
         _,
     };
+
+    /// The priority registers (NVIC IPR, SCB SHPRn) are 8 bits wide per
+    /// interrupt, but the hardware implements only the most-significant bits
+    /// and reads the rest as zero. `Priority` values (0-15) are *logical*
+    /// levels and must be left-aligned into the implemented bits: a raw write
+    /// of e.g. 15 (0x0F) lands entirely in the unimplemented low nibble, so
+    /// every level would collapse to 0 (highest). Shifting by 4 matches CMSIS
+    /// `NVIC_EncodePriority` on the 4-priority-bit parts (all STM32 M3/M4/M7);
+    /// on parts implementing fewer bits the surplus low bits are ignored by
+    /// hardware, which still preserves the ordering of the two named levels.
+    const priority_shift = 4;
+
+    fn encode_priority(priority: Priority) u8 {
+        return (@as(u8, @backingInt(priority)) & 0x0F) << priority_shift;
+    }
+
+    fn decode_priority(raw: u8) Priority {
+        return @fromBackingInt(raw >> priority_shift);
+    }
 
     pub fn globally_enabled() bool {
         var mrs: u32 = undefined;
@@ -142,7 +163,14 @@ pub const interrupt = struct {
 
     pub const exception = struct {
         const ppb = switch (cortex_m) {
-            .cortex_m7 => microzig.chip.peripherals.SCB,
+            // Some vendor SVDs expose the System Control Block as a chip
+            // peripheral named `SCB`; when the SVD doesn't (e.g. STM32H7),
+            // fall back to microzig's core SCB, which has the same SHPR1/2/3
+            // layout the code below relies on.
+            .cortex_m7 => if (@hasDecl(microzig.chip.peripherals, "SCB"))
+                microzig.chip.peripherals.SCB
+            else
+                microzig.cpu.peripherals.scb,
             else => microzig.cpu.peripherals.ppb,
         };
 
@@ -324,8 +352,6 @@ pub const interrupt = struct {
             }
         }
 
-        /// Note: Although the Priority values are 0 - 15, some platforms may
-        ///       only use the most significant bits.
         pub fn set_priority(comptime excpt: Exception, priority: Priority) void {
             const num: u2 = @intCast(@backingInt(excpt) / 4);
             const shift: u5 = @as(u5, @intCast(@backingInt(excpt))) % 4 * 8;
@@ -340,15 +366,15 @@ pub const interrupt = struct {
                 },
                 1 => {
                     ppb.SHPR1.raw &= ~(@as(u32, 0xFF) << shift);
-                    ppb.SHPR1.raw |= @as(u32, @backingInt(priority)) << shift;
+                    ppb.SHPR1.raw |= @as(u32, encode_priority(priority)) << shift;
                 },
                 2 => {
                     ppb.SHPR2.raw &= ~(@as(u32, 0xFF) << shift);
-                    ppb.SHPR2.raw |= @as(u32, @backingInt(priority)) << shift;
+                    ppb.SHPR2.raw |= @as(u32, encode_priority(priority)) << shift;
                 },
                 3 => {
                     ppb.SHPR3.raw &= ~(@as(u32, 0xFF) << shift);
-                    ppb.SHPR3.raw |= @as(u32, @backingInt(priority)) << shift;
+                    ppb.SHPR3.raw |= @as(u32, encode_priority(priority)) << shift;
                 },
             }
         }
@@ -364,7 +390,7 @@ pub const interrupt = struct {
                 3 => ppb.SHPR3.raw,
             } >> shift) & 0xFF;
 
-            return @fromBackingInt(raw);
+            return decode_priority(raw);
         }
     };
 
@@ -497,11 +523,11 @@ pub const interrupt = struct {
     }
 
     pub fn set_priority(comptime int: ExternalInterrupt, priority: Priority) void {
-        nvic.IPR[@backingInt(int)] = @backingInt(priority);
+        nvic.IPR[@backingInt(int)] = encode_priority(priority);
     }
 
     pub fn get_priority(comptime int: ExternalInterrupt) Priority {
-        return @fromBackingInt(peripherals.nvic.IPR[@backingInt(int)]);
+        return decode_priority(peripherals.nvic.IPR[@backingInt(int)]);
     }
 };
 

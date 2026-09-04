@@ -18,7 +18,9 @@ pub fn match_name(heystack: []const u8, needles: []const []const u8) bool {
 pub fn create_peripheral_enum(comptime bases_name: []const []const u8) type {
     var field_names: []const []const u8 = &.{};
     var field_values: []const usize = &.{};
-    @setEvalBranchQuota(10_000);
+    // The full built-in STM32H750 chip exposes ~200 peripheral/type decls; the
+    // decl_names x match_name(indexOf) scan blows past the default quota.
+    @setEvalBranchQuota(1_000_000);
     for (@typeInfo(peripherals).@"struct".decl_names, 0..) |decl_name, i| {
         if (match_name(decl_name, bases_name)) {
             field_names = field_names ++ .{decl_name};
@@ -32,7 +34,7 @@ pub fn create_peripheral_enum(comptime bases_name: []const []const u8) type {
 pub fn sub_peripheral_enum(comptime T: type, comptime keep_name: []const []const u8, match_type: ?[]const u8) type {
     var field_names: []const []const u8 = &.{};
     var field_values: []const usize = &.{};
-    @setEvalBranchQuota(10_000);
+    @setEvalBranchQuota(1_000_000);
     const info = @typeInfo(T).@"enum";
     for (info.field_names, info.field_values) |field_name, field_value| {
         if (match_name(field_name, keep_name)) {

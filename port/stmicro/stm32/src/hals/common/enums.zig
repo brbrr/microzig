@@ -13,6 +13,7 @@ pub const Peripherals = util.create_peripheral_enum(&.{
     "ADC",
     "TIM",
     "SPI",
+    "SAI",
     "USART",
     "WWDG",
     "UART",
