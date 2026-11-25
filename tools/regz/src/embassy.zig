@@ -563,6 +563,13 @@ pub fn load_into_db(db: *Database, io: std.Io, path: []const u8, device: ?[]cons
             .value = try allocator.print("{d}", .{dma_channel_count}),
         });
 
+        if (core.nvic_priority_bits) |bits| {
+            try db.add_device_property(device_id, .{
+                .key = "cpu.nvicPrioBits",
+                .value = try allocator.print("{d}", .{bits}),
+            });
+        }
+
         for (core.peripherals) |peripheral| {
             // Don't know what to do if registers is null, so skipping
             const registers = peripheral.registers orelse continue;
