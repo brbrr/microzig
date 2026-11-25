@@ -55,7 +55,9 @@ pub fn sub_peripheral_enum(comptime T: type, comptime keep_name: []const []const
     var field_names: []const []const u8 = &.{};
     var field_values: []const usize = &.{};
 
-    @setEvalBranchQuota(30_000);
+    // The STM32H750 has ~100 peripherals; sorting their names at comptime
+    // takes more than 30 000 backward branches.
+    @setEvalBranchQuota(1_000_000);
     const info = @typeInfo(T).@"enum";
     for (sorted_field_indices(info.field_names)) |i| {
         const field_name = info.field_names[i];
